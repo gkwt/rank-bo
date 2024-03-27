@@ -21,7 +21,8 @@ class BayesOptCampaign():
         self,
         dataset: torch.utils.dataset.Dataset,
         goal: str,
-        model: torch.Models,
+        model: torch.nn.Module,
+        loss_func,
         acq_func_type,
         num_workers: int = 1,
         n_runs: int = 10,
@@ -137,6 +138,7 @@ class BayesOptCampaign():
                         X_meas, y_meas = self.make_xy(meas_df)
                         X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
 
+                        # SCALING NOT REQUIRED
                         # get the scalers
                         X_scaler, y_scaler = get_scalers(
                             self.feature_type, self.model_type, self.task_type
@@ -160,14 +162,18 @@ class BayesOptCampaign():
                             incumbent_scal = np.amax(y_meas_scal)
 
                         # train the model on observations
+                        # TODO training loop required here -> 5 epochs
+                        # start with fresh model every time
+                        # specify the LOSS function -> (ranking/mse)
                         self.model.train_bo(X_meas_scal, y_meas_scal)                   # (num_acq_samples, 1)
 
-                        if self.task_type == enums.TaskType.regression:
-                            mu_avail, sigma_avail = self.model.predict_bo(X_avail_scal)                         # (num_acq_samples, 1)
-                            acq_vals = self.acq_func(mu_avail.flatten(), sigma_avail.flatten(), incumbent_scal) # (num_acq_samples,)
-                        elif self.task_type == enums.TaskType.binary:
-                            pred_avail, prob_avail = self.model.predict_bo(X_avail_scal)                         # (num_acq_samples, 1)
-                            acq_vals = self.acq_func(prob_avail.flatten(), pred_avail.flatten(), incumbent_scal) # (num_acq_samples,)
+                        # TODO Inference
+                        # just do greedy sampling (maximize the prediction)
+                        mu_avail, sigma_avail = self.model.predict_bo(X_avail_scal)                         # (num_acq_samples, 1)
+                        acq_vals = self.acq_func(mu_avail.flatten(), sigma_avail.flatten(), incumbent_scal) # (num_acq_samples,)
+
+                        # maximize for greedy
+                        acq_vals = max(mu_avail)
 
                         if self.goal == 'minimize':
                             # higher acq_vals the better
@@ -179,6 +185,7 @@ class BayesOptCampaign():
                             sort_idxs = np.argsort(acq_vals) # ascending order
                             sample_idxs = sort_idxs[:self.batch_size]
 
+                        # TODO make "measurement"
                         # perform measurements
                         for sample_idx in sample_idxs:
                             sample, measurement = self.sample_meas_acq(avail_df, sample_idx)
