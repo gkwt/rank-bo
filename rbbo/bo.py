@@ -134,17 +134,17 @@ class BayesOptCampaign:
 
                 # sample randomly
                 sample, measurement = self.sample_meas_randomly(avail_df)
-                observations.append({"smi": sample, "y": measurement})
+                observations.append({"smi": sample, "target": measurement})
                 # elif self.model_type == "nn":
                 #     # use nearnest neighbour strategy
                 #     X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
                 #     if self.goal == "minimize":
                 #         best_fp = np.array(
-                #             meas_df.nsmallest(n=1, columns="y")["x"].tolist()
+                #             meas_df.nsmallest(n=1, columns="target")["feature"].tolist()
                 #         ).squeeze()
                 #     elif self.goal == "maximize":
                 #         best_fp = np.array(
-                #             meas_df.nlargest(n=1, columns="y")["x"].tolist()
+                #             meas_df.nlargest(n=1, columns="target")["feature"].tolist()
                 #         ).squeeze()
                 #     sims = np.array(
                 #         [chem.similarity_between_fps(x, best_fp) for x in X_avail]
@@ -154,7 +154,7 @@ class BayesOptCampaign:
                 #         sample, measurement = self.sample_meas_acq(
                 #             avail_df, sample_idx
                 #         )
-                #     observations.append({"smi": sample, "y": measurement})
+                #     observations.append({"smi": sample, "target": measurement})
 
                 # sample using surrogate model and acquisition
                 X_meas, y_meas = self.make_xy(meas_df)
@@ -223,7 +223,7 @@ class BayesOptCampaign:
                 # perform measurements
                 for sample_idx in sample_idxs:
                     sample, measurement = self.sample_meas_acq(avail_df, sample_idx)
-                    observations.append({"smi": sample, "y": measurement})
+                    observations.append({"smi": sample, "target": measurement})
 
                 df_optimization.append(pd.DataFrame(observations))
 
@@ -248,10 +248,10 @@ class BayesOptCampaign:
 
     def make_xy(self, df, num=None):
         """generate featues and targets given a DataFrame"""
-        y = df["y"].values.reshape(-1, 1)
+        y = df["target"].values.reshape(-1, 1)
         # if self.feature_type == "graphnet":
         #     # special treatment for GraphTuple features
-        #     graphnet_list = df["x"].tolist()
+        #     graphnet_list = df["feature"].tolist()
         #     if num is not None:
         #         graphnet_list = graphnet_list[: np.amin([num, len(graphnet_list)])]
         #         y = y[: np.amin([num, len(graphnet_list)])]
@@ -260,7 +260,7 @@ class BayesOptCampaign:
         #     X = utils_tf.concat(graphnet_list, axis=0)
         # else:
         #     # vector-valued features
-        X = np.vstack(df["x"].values)
+        X = np.vstack(df["feature"].values)
         if num is not None:
             X = X[: np.amin([num, X.shape[0]]), :]
             y = y[: np.amin([num, X.shape[0]]), :]

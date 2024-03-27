@@ -45,24 +45,15 @@ class MoleculeDataset(Dataset):
             desc = np.array(desc, dtype=float)
             desc = desc[:, ~np.isnan(desc).any(axis=0)]
 
-            self.data['feature'] = list(desc)
+            self.data["feature"] = list(desc)
             self.data = self.data.dropna(axis=1)
-            self.feature = self.data['feature']
+            self.feature = self.data["feature"]
 
-<<<<<<< Updated upstream
-        elif feature_type == 'fp':
+        elif feature_type == "fp":
             with multiprocessing.Pool(num_workers) as pool:
                 fps = pool.map(get_fingerprint, self.smiles.tolist())
-            self.data['feature'] = fps
-            self.feature = self.data['feature']
-=======
-        elif feature_type == "fp":
-            # with multiprocessing.Pool(num_workers) as pool:
-            #     fps = pool.map(get_fingerprint, self.smiles.tolist())
-            fps = [get_fingerprint(s) for s in self.smiles]
-            self.data[feature_type] = fps
-            self.feature = self.data[feature_type]
->>>>>>> Stashed changes
+            self.data["feature"] = fps
+            self.feature = self.data["feature"]
 
         else:
             # if features is not defined, just use the smiles
@@ -72,33 +63,25 @@ class MoleculeDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-<<<<<<< Updated upstream
-        feature = self.data['feature'].iloc[idx]
-        target = self.data['target'].iloc[idx]
+        feature = self.data["feature"].iloc[idx]
+        target = self.data["target"].iloc[idx]
         return feature, target
 
 
 class DataframeDataset(Dataset):
     """
     Quick wrapper to create a dataset for pytorch training
-    directly from dataframe. 
+    directly from dataframe.
     Requires a column named "feature" and one named "target"
     """
+
     def __init__(self, df):
         self.data = df
-        assert 'feature' in df.columns, 'Column for "feature" not found.'
-        assert 'target' in df.columns, 'Column for "target" not found.'
+        assert "feature" in df.columns, 'Column for "feature" not found.'
+        assert "target" in df.columns, 'Column for "target" not found.'
 
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx)
-        return self.data['feature'].iloc[idx], self.data['target'].iloc[idx]
-
-
-
-=======
-        feature = self.data[self.feature_type].iloc[idx]
-        target = self.data["target"].iloc[idx]
-        return feature, target
->>>>>>> Stashed changes
+    def __getitem__(self, idx):
+        return self.data["feature"].iloc[idx], self.data["target"].iloc[idx]
