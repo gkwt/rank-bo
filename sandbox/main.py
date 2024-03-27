@@ -8,6 +8,6 @@ if __name__ == '__main__':
 
     dataset = MoleculeDataset(
         '../data/delaney.csv',
-        'mordred',
+        'fp',
         num_workers=12
     )
