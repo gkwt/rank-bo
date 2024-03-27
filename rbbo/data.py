@@ -28,6 +28,7 @@ def get_fingerprint(smiles: str):
 class MoleculeDataset(Dataset):
     """
     Load library of pytorch dataset. Specify the feature type.
+    Featurizes the dataset.
     """
     def __init__(self, smiles_data: str, feature_type: str, num_workers: int = 1):
         self.data = pd.read_csv(smiles_data)
@@ -41,15 +42,15 @@ class MoleculeDataset(Dataset):
             desc = np.array(desc, dtype=float)
             desc = desc[:, ~np.isnan(desc).any(axis=0)]
 
-            self.data[feature_type] = list(desc)
+            self.data['feature'] = list(desc)
             self.data = self.data.dropna(axis=1)
-            self.feature = self.data[feature_type]
+            self.feature = self.data['feature']
 
         elif feature_type == 'fp':
             with multiprocessing.Pool(num_workers) as pool:
                 fps = pool.map(get_fingerprint, self.smiles.tolist())
-            self.data[feature_type] = fps
-            self.feature = self.data[feature_type]
+            self.data['feature'] = fps
+            self.feature = self.data['feature']
 
         else:
             # if features is not defined, just use the smiles
@@ -59,9 +60,27 @@ class MoleculeDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        feature = self.data[self.feature_type].iloc[idx]
+        feature = self.data['feature'].iloc[idx]
         target = self.data['target'].iloc[idx]
         return feature, target
+
+
+class DataframeDataset(Dataset):
+    """
+    Quick wrapper to create a dataset for pytorch training
+    directly from dataframe. 
+    Requires a column named "feature" and one named "target"
+    """
+    def __init__(self, df):
+        self.data = df
+        assert 'feature' in df.columns, 'Column for "feature" not found.'
+        assert 'target' in df.columns, 'Column for "target" not found.'
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx)
+        return self.data['feature'].iloc[idx], self.data['target'].iloc[idx]
 
 
 

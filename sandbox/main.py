@@ -11,3 +11,5 @@ if __name__ == '__main__':
         'fp',
         num_workers=12
     )
+
+    import pdb; pdb.set_trace()
