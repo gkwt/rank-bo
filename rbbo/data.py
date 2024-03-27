@@ -12,11 +12,13 @@ import mordred.descriptors
 
 calc = mordred.Calculator(mordred.descriptors, ignore_3D=True)
 
+
 def get_mordred_features(smiles: str):
     m = Chem.MolFromSmiles(smiles)
     if m is None:
         return None
     return calc(m)._values
+
 
 def get_fingerprint(smiles: str):
     m = Chem.MolFromSmiles(smiles)
@@ -30,13 +32,14 @@ class MoleculeDataset(Dataset):
     Load library of pytorch dataset. Specify the feature type.
     Featurizes the dataset.
     """
+
     def __init__(self, smiles_data: str, feature_type: str, num_workers: int = 1):
         self.data = pd.read_csv(smiles_data)
-        self.smiles = self.data['smiles']
-        self.target = self.data['target']
+        self.smiles = self.data["smiles"]
+        self.target = self.data["target"]
         self.feature_type = feature_type
 
-        if feature_type == 'mordred':
+        if feature_type == "mordred":
             with multiprocessing.Pool(num_workers) as pool:
                 desc = pool.map(get_mordred_features, self.smiles.tolist())
             desc = np.array(desc, dtype=float)
@@ -46,11 +49,20 @@ class MoleculeDataset(Dataset):
             self.data = self.data.dropna(axis=1)
             self.feature = self.data['feature']
 
+<<<<<<< Updated upstream
         elif feature_type == 'fp':
             with multiprocessing.Pool(num_workers) as pool:
                 fps = pool.map(get_fingerprint, self.smiles.tolist())
             self.data['feature'] = fps
             self.feature = self.data['feature']
+=======
+        elif feature_type == "fp":
+            # with multiprocessing.Pool(num_workers) as pool:
+            #     fps = pool.map(get_fingerprint, self.smiles.tolist())
+            fps = [get_fingerprint(s) for s in self.smiles]
+            self.data[feature_type] = fps
+            self.feature = self.data[feature_type]
+>>>>>>> Stashed changes
 
         else:
             # if features is not defined, just use the smiles
@@ -60,6 +72,7 @@ class MoleculeDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
+<<<<<<< Updated upstream
         feature = self.data['feature'].iloc[idx]
         target = self.data['target'].iloc[idx]
         return feature, target
@@ -84,3 +97,8 @@ class DataframeDataset(Dataset):
 
 
 
+=======
+        feature = self.data[self.feature_type].iloc[idx]
+        target = self.data["target"].iloc[idx]
+        return feature, target
+>>>>>>> Stashed changes

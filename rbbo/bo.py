@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import pandas as pd
 
 
 # TODO -> old code with issues, need to be adapted
@@ -21,14 +22,15 @@ class BayesOptCampaign:
 
     def __init__(
         self,
-        dataset: torch.utils.dataset.Dataset,
+        dataset: pd.DataFrame,
         goal: str,
         model: torch.nn.Module,
-        feature_type,
-        loss_func,
+        feature_type: str,
+        loss_func: str,
         acq_func_type,
         num_workers: int = 1,
         num_of_epochs: int = 5,
+        num_total: int = 10,
         n_runs: int = 10,
         num_acq_samples: int = 50,
         batch_size: int = 1,
@@ -49,12 +51,18 @@ class BayesOptCampaign:
         self.budget = budget
         self.init_design_strategy = init_design_strategy
         self.work_dir = work_dir
+        self.num_init_design = num_init_design
+        self.loss_func = loss_func
+        self.num_workers = num_workers
+        self.num_of_epochs = num_of_epochs
+        self.n_runs = n_runs
+        self.num_total = num_total
 
         # process the dataset
         self._process_dataset()
 
         # check budget
-        self._validate_budget()
+        # self._validate_budget()
 
         # initialize the surrogate model
         # self._initialize_model(self.task_type)
@@ -85,11 +93,11 @@ class BayesOptCampaign:
 
     def _reinitialize_model(self):
         """Reinitialize the model from scratch (re-train)"""
-        model = self.model
-        for layer in model.children():
-            if hasattr(layer, "reset_parameters"):
-                layer.reset_parameters()
-        return model
+        reinit_model = self.model
+        for layer in reinit_model.layers:
+            torch.nn.init.orthogonal_(layer.weight)
+            torch.nn.init.zeros_(layer.bias)
+        return reinit_model
 
     def run(self, num_restarts: int, eval_metrics=False):
         """Run the sequential learning experiments for num_restart independently seeded
@@ -114,9 +122,10 @@ class BayesOptCampaign:
             while (len(observations) - self.num_init_design) < self.budget:
 
                 # re-initialize the surrogate model
-                self.model = self._initialize_model()
-                # TODO: how to import data?
-                meas_df, avail_df = self.split_avail(self.df, observations)
+                if iter_num >= 1:
+                    self.model = self._reinitialize_model()
+                # split dataset into measured and available candidates
+                meas_df, avail_df = self.split_avail(self.dataset, observations)
                 # shuffle the available candidates (acq func sampling)
                 avail_df = avail_df.sample(frac=1).reset_index(drop=True)
                 print(
@@ -216,13 +225,7 @@ class BayesOptCampaign:
                     sample, measurement = self.sample_meas_acq(avail_df, sample_idx)
                     observations.append({"smi": sample, "y": measurement})
 
-            # evaluate the campaign
-            if eval_metrics:
-                # measure how many times the measured values we've /
-                # found so far are in the top 5% of the dataset
-                # find the smiles of the top 5% of the dataset based on its target value
-                top_5 = self.df.nlargest(int(0.05 * self.num_total), "y")["y"].values
-                top_5_count = 0
+                df_optimization.append(pd.DataFrame(observations))
 
     def sample_meas_acq(self, avail_df, idx):
         """obtain the molecules suggested by the acquisition function"""
@@ -235,30 +238,31 @@ class BayesOptCampaign:
 
     def split_avail(self, df, observations):
         """return available and measured datasets"""
-        obs_smi = [o["smi"] for o in observations]
+        data = df.data
+        obs_smi = [o["smiles"] for o in observations]
 
-        avail_df = df[~(df["smi"].isin(obs_smi))]
-        meas_df = df[df["smi"].isin(obs_smi)]
-
+        avail_df = data[~(data["smiles"].isin(obs_smi))]
+        meas_df = data[data["smiles"].isin(obs_smi)]
+        print(meas_df, avail_df)
         return meas_df, avail_df
 
     def make_xy(self, df, num=None):
         """generate featues and targets given a DataFrame"""
         y = df["y"].values.reshape(-1, 1)
-        if self.feature_type == "graphnet":
-            # special treatment for GraphTuple features
-            graphnet_list = df["x"].tolist()
-            if num is not None:
-                graphnet_list = graphnet_list[: np.amin([num, len(graphnet_list)])]
-                y = y[: np.amin([num, len(graphnet_list)])]
-            else:
-                pass
-            X = utils_tf.concat(graphnet_list, axis=0)
-        else:
-            # vector-valued features
-            X = np.vstack(df["x"].values)
-            if num is not None:
-                X = X[: np.amin([num, X.shape[0]]), :]
-                y = y[: np.amin([num, X.shape[0]]), :]
+        # if self.feature_type == "graphnet":
+        #     # special treatment for GraphTuple features
+        #     graphnet_list = df["x"].tolist()
+        #     if num is not None:
+        #         graphnet_list = graphnet_list[: np.amin([num, len(graphnet_list)])]
+        #         y = y[: np.amin([num, len(graphnet_list)])]
+        #     else:
+        #         pass
+        #     X = utils_tf.concat(graphnet_list, axis=0)
+        # else:
+        #     # vector-valued features
+        X = np.vstack(df["x"].values)
+        if num is not None:
+            X = X[: np.amin([num, X.shape[0]]), :]
+            y = y[: np.amin([num, X.shape[0]]), :]
 
         return X, y
