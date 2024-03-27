@@ -1,6 +1,10 @@
 import torch
+from torch import optim
+from torch.nn import MSELoss
 import numpy as np
 import pandas as pd
+from rbbo.data import DataframeDataset
+from rbbo.models import MLP
 
 
 # TODO -> old code with issues, need to be adapted
@@ -24,10 +28,10 @@ class BayesOptCampaign:
         self,
         dataset: pd.DataFrame,
         goal: str,
-        model: torch.nn.Module,
+        model_type: str,
         feature_type: str,
-        loss_func: str,
-        acq_func_type,
+        loss_func,
+        acq_func_type: str,
         num_workers: int = 1,
         num_of_epochs: int = 5,
         num_total: int = 10,
@@ -43,7 +47,11 @@ class BayesOptCampaign:
     ):
         self.dataset = dataset
         self.goal = goal
-        self.model = model
+        self.model = model_type
+        self.optimizer = optim.Adam(
+            MLP().parameters(),
+            lr=0.001,
+        )
         self.feature_type = feature_type
         self.acq_func_type = acq_func_type
         self.num_acq_samples = num_acq_samples
@@ -52,7 +60,7 @@ class BayesOptCampaign:
         self.init_design_strategy = init_design_strategy
         self.work_dir = work_dir
         self.num_init_design = num_init_design
-        self.loss_func = loss_func
+        self.loss_func = MSELoss()
         self.num_workers = num_workers
         self.num_of_epochs = num_of_epochs
         self.n_runs = n_runs
@@ -93,10 +101,7 @@ class BayesOptCampaign:
 
     def _reinitialize_model(self):
         """Reinitialize the model from scratch (re-train)"""
-        reinit_model = self.model
-        for layer in reinit_model.layers:
-            torch.nn.init.orthogonal_(layer.weight)
-            torch.nn.init.zeros_(layer.bias)
+        reinit_model = MLP()
         return reinit_model
 
     def run(self, num_restarts: int, eval_metrics=False):
@@ -114,16 +119,25 @@ class BayesOptCampaign:
         df_metrics = []  # collects metrics during optimization (if specified)
 
         for num_restart in range(num_restarts):
-
-            observations = []  # [ {'smiles': , 'y': }, ..., ]
+            observations = []  # [ {'smiles': ,'target': ,'feature': }, ..., ]
             all_test_set_metrics = []
             iter_num = 0
 
             while (len(observations) - self.num_init_design) < self.budget:
-
                 # re-initialize the surrogate model
-                if iter_num >= 1:
-                    self.model = self._reinitialize_model()
+                self.model = self._reinitialize_model()
+                if iter_num == 0:
+                    for _ in range(self.num_init_design):
+                        sample, measurement, feature = self.sample_meas_randomly(
+                            self.dataset.data
+                        )
+                        observations.append(
+                            {
+                                "smiles": sample,
+                                "target": measurement,
+                                "feature": feature,
+                            }
+                        )
                 # split dataset into measured and available candidates
                 meas_df, avail_df = self.split_avail(self.dataset, observations)
                 # shuffle the available candidates (acq func sampling)
@@ -131,10 +145,6 @@ class BayesOptCampaign:
                 print(
                     f"RESTART : {num_restart+1}\tNUM_ITER : {iter_num}\tNUM OBS : {len(observations)}"
                 )
-
-                # sample randomly
-                sample, measurement = self.sample_meas_randomly(avail_df)
-                observations.append({"smi": sample, "target": measurement})
                 # elif self.model_type == "nn":
                 #     # use nearnest neighbour strategy
                 #     X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
@@ -157,8 +167,20 @@ class BayesOptCampaign:
                 #     observations.append({"smi": sample, "target": measurement})
 
                 # sample using surrogate model and acquisition
-                X_meas, y_meas = self.make_xy(meas_df)
-                X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
+                # X_meas, y_meas = self.make_xy(meas_df)
+                # X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
+
+                # convert X_meas and y_meas to torch Dataset
+                meas_set = DataframeDataset(meas_df)
+                avail_set = DataframeDataset(avail_df)
+
+                # load data use DataLoader
+                meas_loader = torch.utils.data.DataLoader(
+                    meas_set, batch_size=8, shuffle=True, drop_last=True
+                )
+                avail_loader = torch.utils.data.DataLoader(
+                    avail_set, batch_size=8, shuffle=True, drop_last=True
+                )
 
                 # SCALING NOT REQUIRED
                 # get the scalers
@@ -192,21 +214,30 @@ class BayesOptCampaign:
                 for epoch in range(self.num_of_epochs):
                     # train the model
                     self.model.train(True)
-                    self.optimizer.zero_grad()
-                    outputs = self.model(X_meas)
-                    loss = self.loss_func(outputs, y_meas)
-                    loss.backward()
-                    self.optimizer.step()
+
+                    for i, data in enumerate(meas_loader):
+                        X_meas, y_meas = data
+                        X_meas = X_meas.float()
+                        y_meas = y_meas.float()
+                        self.optimizer.zero_grad()
+                        outputs = self.model(X_meas)
+                        loss = self.loss_func(outputs.flatten(), y_meas.flatten())
+                        loss.backward()
+                        self.optimizer.step()
 
                 # TODO Inference
                 # just do greedy sampling (maximize the prediction)
                 self.model.train(False)
+                for i, data in enumerate(avail_loader):
+                    X_avail, _ = data
+                    X_avail = X_avail.float()
                 mu_avail = self.model(X_avail)  # (num_acq_samples, 1)
                 # acq_vals = self.acq_func(
                 #     mu_avail.flatten(), sigma_avail.flatten(), incumbent_scal
                 # )  # (num_acq_samples,)
 
                 # maximize for greedy
+                mu_avail = mu_avail.detach().numpy()
                 acq_vals = max(mu_avail.flatten())
 
                 if self.goal == "minimize":
@@ -222,28 +253,35 @@ class BayesOptCampaign:
                 # TODO make "measurement"
                 # perform measurements
                 for sample_idx in sample_idxs:
-                    sample, measurement = self.sample_meas_acq(avail_df, sample_idx)
-                    observations.append({"smi": sample, "target": measurement})
+                    sample, measurement, feature = self.sample_meas_acq(
+                        avail_df, sample_idx
+                    )
+                    observations.append(
+                        {"smiles": sample, "target": measurement, "feature": feature}
+                    )
 
-                df_optimization.append(pd.DataFrame(observations))
+                iter_num += 1
+            df_optimization.append(pd.DataFrame(observations))
+            print(f"{df_optimization=}")
 
     def sample_meas_acq(self, avail_df, idx):
         """obtain the molecules suggested by the acquisition function"""
-        return avail_df.iloc[idx, [0, 2]]
+        return avail_df.iloc[idx, [0, 1, 2]]
 
     def sample_meas_randomly(self, avail_df):
         """take a single random sample from the available candiates"""
         idx = np.random.randint(avail_df.shape[0])
-        return avail_df.iloc[idx, [0, 2]]
+        return avail_df.iloc[idx, [0, 1, 2]]
 
     def split_avail(self, df, observations):
         """return available and measured datasets"""
         data = df.data
         obs_smi = [o["smiles"] for o in observations]
 
+        # avail_df is the set of molecules that have not been measured
+        # create a function that checks if the smiles is in
         avail_df = data[~(data["smiles"].isin(obs_smi))]
         meas_df = data[data["smiles"].isin(obs_smi)]
-        print(meas_df, avail_df)
         return meas_df, avail_df
 
     def make_xy(self, df, num=None):

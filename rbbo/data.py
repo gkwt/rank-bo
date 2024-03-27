@@ -24,7 +24,7 @@ def get_fingerprint(smiles: str):
     m = Chem.MolFromSmiles(smiles)
     if m is None:
         return None
-    return Chem.GetMorganFingerprintAsBitVect(m, 3)
+    return np.array(Chem.GetMorganFingerprintAsBitVect(m, 3), dtype=float)
 
 
 class MoleculeDataset(Dataset):
