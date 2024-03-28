@@ -262,7 +262,7 @@ class BayesOptCampaign:
 
                 iter_num += 1
             df_optimization.append(pd.DataFrame(observations))
-            print(f"{df_optimization=}")
+        return df_optimization
 
     def sample_meas_acq(self, avail_df, idx):
         """obtain the molecules suggested by the acquisition function"""
