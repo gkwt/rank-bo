@@ -28,3 +28,27 @@ def top_one(bo_output):
     bo_output["cummax"] = cummax
 
     return bo_output
+
+def frac_top_n_percent(dataset, bo_output, n, goal):
+    df = pd.read_csv(dataset)
+    if goal == 'maximize':
+        q = 1 - (n/100)
+        quantile = df['target'].quantile(q)
+        df = df[df["target"] > quantile]
+    elif goal == 'minimize':
+        q = n/100
+        quantile = df['target'].quantile(q)
+        df = df[df["target"] < quantile]
+
+    bo_output = pd.read_csv(bo_output)
+    count = 0
+    fracs = []
+    length = len(df)
+    for index, row in bo_output.iterrows():
+        if row["smiles"] in df["smiles"].tolist():
+            count += 1
+        frac = count / float(length)
+        fracs.append(frac)
+    bo_output["fracs"] = fracs
+
+    return bo_output
