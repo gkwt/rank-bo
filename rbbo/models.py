@@ -32,4 +32,10 @@ class MLP(nn.Module):
         return output
 
 
-# class
+def get_loss_function(loss_fn: str):
+    if loss_fn == 'mse':
+        return nn.MSELoss()
+    elif loss_fn == 'ranking':
+        return nn.MarginRankingLoss()
+    else:
+        raise ValueError('Invalid loss_fn name.')
