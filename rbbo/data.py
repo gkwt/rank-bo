@@ -62,7 +62,7 @@ class MoleculeDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         feature = self.data["feature"].iloc[idx]
         target = self.data["target"].iloc[idx]
         return feature, target
@@ -75,7 +75,7 @@ class DataframeDataset(Dataset):
     Requires a column named "feature" and one named "target"
     """
 
-    def __init__(self, df):
+    def __init__(self, df: pd.DataFrame):
         self.data = df
         assert "feature" in df.columns, 'Column for "feature" not found.'
         assert "target" in df.columns, 'Column for "target" not found.'
@@ -83,5 +83,52 @@ class DataframeDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         return self.data["feature"].iloc[idx], self.data["target"].iloc[idx]
+
+class PairwiseRankingDataframeDataset(Dataset):
+    """
+    This dataset will load the data for pairwise ranking loss.
+    """
+    def __init__(self, df: pd.DataFrame, max_num_pairs: int = 0, goal: str = 'maximize'):
+        self.data = df
+        assert "feature" in df.columns, 'Column for "feature" not found.'
+        assert "target" in df.columns, 'Column for "target" not found.'
+
+        self.max_num_pairs = max_num_pairs
+        self.goal = goal
+
+        # default to 2*length of dataframe
+        if max_num_pairs == 0:
+            self.max_num_pairs = 2*len(df)
+         
+        # the ranking based on the target value
+        self.compare_fn = np.greater if goal == 'maximize' else np.less
+
+        # get indices for pairs
+        idx1 = np.arange(len(df))
+        idx2 = np.arange(len(df))
+        pairs = np.array([[[v1, v2] for v1 in idx1] for v2 in idx2]).reshape(-1, 2)
+        
+        if max_num_pairs >= 0:
+            self.pairs = pairs[np.random.choice(pairs.shape[0], self.max_num_pairs, replace=False), :]
+        else:
+            self.pairs = pairs
+
+    def __len__(self):
+        return len(self.pairs)
+
+    def __getitem__(self, idx):
+        # higher rank is better!
+        idx = self.pairs[idx]
+        target = self.compare_fn(self.data.iloc[idx[0]].target, self.data.iloc[idx[1]].target).astype(float)
+        target = target * 2.0 - 1.0
+
+        return self.data.iloc[idx[0]]['feature'], self.data.iloc[idx[1]]['feature'], target
+
+
+
+    
+
+
+
