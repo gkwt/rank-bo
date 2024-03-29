@@ -18,12 +18,12 @@ if __name__ == "__main__":
     loss_type = 'mse' # or ranking/mse
 
     num_workers = 20
-    num_runs = 10 #20
+    num_runs = 20
     work_dir = f'{dataset_name}_{goal}'
 
     dataset_path = f'../data/{dataset_name}.csv'
     dataset = MoleculeDataset(dataset_path, "fp", num_workers=num_workers)
-    bo = BayesOptCampaign(dataset, goal, loss_type, verbose=False, budget=10, work_dir=work_dir)
+    bo = BayesOptCampaign(dataset, goal, loss_type, verbose=False, work_dir=work_dir)
 
     # get best
     if goal == 'maximize':
