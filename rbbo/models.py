@@ -36,6 +36,6 @@ def get_loss_function(loss_fn: str):
     if loss_fn == 'mse':
         return nn.MSELoss()
     elif loss_fn == 'ranking':
-        return nn.MarginRankingLoss()
+        return nn.MarginRankingLoss(margin=1.0)
     else:
         raise ValueError('Invalid loss_fn name.')

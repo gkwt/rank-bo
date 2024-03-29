@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 from torch import optim
@@ -6,7 +8,7 @@ from torch.nn import MSELoss
 import numpy as np
 import pandas as pd
 
-from rbbo.data import DataframeDataset
+from rbbo.data import DataframeDataset, PairwiseRankingDataframeDataset
 from rbbo.models import MLP, get_loss_function
 
 
@@ -39,6 +41,7 @@ class BayesOptCampaign:
         init_design_strategy: str = "random",
         num_init_design: int = 20,
         work_dir: str = ".",
+        verbose: bool = True,
         *args,
         **kwargs,
     ):
@@ -58,7 +61,13 @@ class BayesOptCampaign:
         # self.num_workers = num_workers
         self.num_of_epochs = num_of_epochs
         self.num_total = num_total
+        self.verbose = verbose
 
+        # create working dir, and write the hypermarameters
+        os.makedirs(self.work_dir, exist_ok=True)
+        with open(self.work_dir + '/hparams.txt', 'w') as f: 
+            for k,v in self.__dict__.items():
+                f.write(f'{k}: {v}\n')
 
     def _validate_budget(self):
         """validate that the budget does not exceed the total number of
@@ -110,9 +119,10 @@ class BayesOptCampaign:
             meas_df, avail_df = self.split_avail(self.dataset, observations)
             # shuffle the available candidates (acq func sampling)
             avail_df = avail_df.sample(frac=1).reset_index(drop=True)
-            print(
-                f"NUM_ITER : {iter_num}\tNUM OBS : {len(observations)}"
-            )
+            if self.verbose:
+                print(
+                    f"NUM_ITER : {iter_num}\tNUM OBS : {len(observations)}"
+                )
             # elif self.model_type == "nn":
             #     # use nearnest neighbour strategy
             #     X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
@@ -139,7 +149,10 @@ class BayesOptCampaign:
             # X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
 
             # convert X_meas and y_meas to torch Dataset
-            meas_set = DataframeDataset(meas_df)
+            if self.loss_type == 'mse':
+                meas_set = DataframeDataset (meas_df)
+            elif self.loss_type == 'ranking':
+                meas_set = PairwiseRankingDataframeDataset(meas_df)
             avail_set = DataframeDataset(avail_df)
 
             # load data use DataLoader
@@ -147,7 +160,7 @@ class BayesOptCampaign:
                 meas_set, batch_size=8, shuffle=True, drop_last=True
             )
             avail_loader = torch.utils.data.DataLoader(
-                avail_set, batch_size=8, shuffle=True, drop_last=True
+                avail_set, batch_size=64, shuffle=False
             )
 
             # train the model on observations
@@ -158,35 +171,46 @@ class BayesOptCampaign:
                 self.model.train()
 
                 for i, data in enumerate(meas_loader):
-                    X_meas, y_meas = data
                     self.optimizer.zero_grad()
-                    outputs = self.model(X_meas)
-                    loss = self.loss_func(outputs.flatten(), y_meas.flatten())
+                    if self.loss_type == 'mse':
+                        X_meas, y_meas = data
+                        outputs = self.model(X_meas)
+                        loss = self.loss_func(outputs.flatten(), y_meas.flatten())
+                    elif self.loss_type == 'ranking':
+                        x1, x2, y = data
+                        y1 = self.model(x1)
+                        y2 = self.model(x2)
+                        loss = self.loss_func(y1.flatten(), y2.flatten(), y)
+
                     loss.backward()
                     self.optimizer.step()
 
             # just do greedy sampling (maximize the prediction)
+            mu_avail = []
             with torch.no_grad():
                 self.model.eval()
                 for i, data in enumerate(avail_loader):
                     X_avail, _ = data
                     X_avail = X_avail
-                mu_avail = self.model(X_avail)  # (num_acq_samples, 1)
+                    y_avail = self.model(X_avail)  # (num_acq_samples, 1)
+                    mu_avail.append(y_avail.detach().numpy())
+            acq_vals = np.concatenate(mu_avail).flatten()
 
             # acq_vals = self.acq_func(
             #     mu_avail.flatten(), sigma_avail.flatten(), incumbent_scal
             # )  # (num_acq_samples,)
 
             # maximize for greedy
-            mu_avail = mu_avail.detach().numpy()
-            acq_vals = max(mu_avail.flatten())
+            # acq_vals = mu_avail.detach().numpy().flatten()
+            # acq_vals = mu_avail
+            # acq_vals = max(mu_avail.flatten())
 
-            if self.goal == "minimize":
+            if self.goal == "maximize":
                 # higher acq_vals the better
                 sort_idxs = np.argsort(acq_vals)[::-1]  # descending order
                 sample_idxs = sort_idxs[: self.batch_size]
 
-            elif self.goal == "maximize":
+            elif self.goal == "minimize":
                 # lower acq_vals the better
                 sort_idxs = np.argsort(acq_vals)  # ascending order
                 sample_idxs = sort_idxs[: self.batch_size]

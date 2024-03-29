@@ -119,7 +119,8 @@ class PairwiseRankingDataframeDataset(Dataset):
         return len(self.pairs)
 
     def __getitem__(self, idx):
-        # higher rank is better!
+        # m(x1) > m(x2) is y = +1
+        # m(x1) < m(x2) is y = -1
         idx = self.pairs[idx]
         target = self.compare_fn(self.data.iloc[idx[0]].target, self.data.iloc[idx[1]].target).astype(float)
         target = target * 2.0 - 1.0

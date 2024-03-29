@@ -1,7 +1,12 @@
 import pandas as pd
 
 
-def frac_top_n(df, bo_output, n, goal):
+def frac_top_n(
+    df: pd.DataFrame, 
+    bo_output: pd.DataFrame, 
+    n: int, 
+    goal: str = 'maximize'
+):
     # df = pd.read_csv(dataset)
     # sort the dataset by target values in ascending order.
     if goal == "maximize":
@@ -21,12 +26,16 @@ def frac_top_n(df, bo_output, n, goal):
     return bo_output
 
 
-def top_one(bo_output):
+def top_one(
+    bo_output: pd.DataFrame, 
+    goal: str = 'maximize'
+):
     df = bo_output
     targets = df["target"]
-    cummax = targets.cummax()
-    bo_output["cummax"] = cummax
-
+    if goal == 'maximize':
+        bo_output["top1"] = targets.cummax()
+    elif goal == 'minimize':
+        bo_output["top1"] = targets.cummin()
     return bo_output
 
 def frac_top_n_percent(dataset, bo_output, n, goal):
