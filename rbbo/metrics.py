@@ -1,5 +1,6 @@
 import pandas as pd
-
+from sklearn.metrics import auc 
+from sklearn.preprocessing import minmax_scale
 
 def frac_top_n(
     df: pd.DataFrame, 
@@ -7,8 +8,6 @@ def frac_top_n(
     n: int, 
     goal: str = 'maximize'
 ):
-    # df = pd.read_csv(dataset)
-    # sort the dataset by target values in ascending order.
     if goal == "maximize":
         df = df.nlargest(n, "target", keep="first")
     elif goal == "minimize":
@@ -21,7 +20,7 @@ def frac_top_n(
             count += 1
         frac = count / float(n)
         fracs.append(frac)
-    bo_output["fracs"] = fracs
+    bo_output["frac_top_n"] = fracs
 
     return bo_output
 
@@ -30,16 +29,20 @@ def top_one(
     bo_output: pd.DataFrame, 
     goal: str = 'maximize'
 ):
-    df = bo_output
-    targets = df["target"]
+    targets = bo_output["target"]
     if goal == 'maximize':
-        bo_output["top1"] = targets.cummax()
+        bo_output["top_one"] = targets.cummax()
     elif goal == 'minimize':
-        bo_output["top1"] = targets.cummin()
+        bo_output["top_one"] = targets.cummin()
     return bo_output
 
-def frac_top_n_percent(dataset, bo_output, n, goal):
-    df = pd.read_csv(dataset)
+def frac_top_n_percent(
+        df: pd.DataFrame, 
+        bo_output: pd.DataFrame, 
+        n: int, 
+        goal: str = 'maximize'
+):
+
     if goal == 'maximize':
         q = 1 - (n/100)
         quantile = df['target'].quantile(q)
@@ -49,7 +52,6 @@ def frac_top_n_percent(dataset, bo_output, n, goal):
         quantile = df['target'].quantile(q)
         df = df[df["target"] < quantile]
 
-    bo_output = pd.read_csv(bo_output)
     count = 0
     fracs = []
     length = len(df)
@@ -58,6 +60,22 @@ def frac_top_n_percent(dataset, bo_output, n, goal):
             count += 1
         frac = count / float(length)
         fracs.append(frac)
-    bo_output["fracs"] = fracs
+    bo_output["frac_top_n_percent"] = fracs
 
     return bo_output
+
+def custom_auc(
+        bo_output: pd.DataFrame, 
+        metric: str = "frac_top_n"
+               
+):
+    bo_output = bo_output.reset_index()
+    x = bo_output['index']
+    y = bo_output[metric]
+
+    x_scaled = minmax_scale(x)
+    y_scaled = minmax_scale(y)
+
+    custom_auc = auc(x_scaled, y_scaled)
+
+    return custom_auc
