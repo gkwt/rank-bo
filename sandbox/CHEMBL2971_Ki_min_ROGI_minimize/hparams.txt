@@ -1,0 +1,12 @@
+dataset: <rbbo.data.MoleculeDataset object at 0x7f0071505af0>
+goal: minimize
+batch_size: 1
+budget: 100
+init_design_strategy: random
+work_dir: CHEMBL2971_Ki_min_ROGI_minimize
+num_init_design: 20
+loss_type: mse
+loss_func: MSELoss()
+num_of_epochs: 5
+num_total: 10
+verbose: False
