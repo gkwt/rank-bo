@@ -18,7 +18,9 @@ conda install -c pytorch pytorch
 # install pip packages next
 # pip install rdkit-pypi      # if the conda version is not working
 pip install mordred
-pip install pytorchltr
+pip install rogi
+pip install PyTDC
+# pip install pytorchltr
 # pip install chemprop
 
 # deactivate

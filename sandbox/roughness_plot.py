@@ -8,18 +8,21 @@ import seaborn as sns
 sns.set_theme(style="white")
 import matplotlib.pyplot as plt
 
-from rbbo.metrics import frac_top_n, top_one, custom_auc
+from rbbo.metrics import frac_top_n, top_one, auc_metric
 
 if __name__ == "__main__":
     # input parameters
     goal = 'minimize'
     top_n = 20
     rough_dict = {"dataset": [], "loss_type": [], "auc": [], "rogi": [], }
-    for dataset_name in ['CHEMBL2971_Ki_min_ROGI', 'CHEMBL4616_EC50_max_ROGI']:
+
+    for dataset_name in ['lipo', 'CHEMBL2971_Ki_min_ROGI', 'CHEMBL4616_EC50_max_ROGI']:
         dataset_path = f'../data/{dataset_name}.csv'
         dataset: pd.DataFrame = pd.read_csv(dataset_path)
+
         ri = RoughnessIndex(Y=dataset["target"], smiles=dataset["smiles"])
         rogi_score = ri.compute_index()
+        import pdb; pdb.set_trace()
 
         for loss in ["mse", "ranking"]:
             result_path = f'{dataset_name}_minimize/results_{loss}_{dataset_name}_minimize.pkl'
@@ -30,7 +33,13 @@ if __name__ == "__main__":
                 df['loss_type'] = loss
                 df = frac_top_n(dataset, df, top_n, goal)
                 df = top_one(df, goal)
-                auc = custom_auc(df, "top_one")
+                auc = auc_metric(
+                    dataset, 
+                    bo_output = df, 
+                    metric = "top_one", 
+                    goal = goal, 
+                    outliers = 3.0
+                )
                 auc_list.append(auc)
 
                 rough_dict["dataset"].append(dataset_name)
