@@ -150,7 +150,7 @@ class BayesOptCampaign:
 
             # convert X_meas and y_meas to torch Dataset
             if self.loss_type == 'mse':
-                meas_set = DataframeDataset (meas_df)
+                meas_set = DataframeDataset(meas_df)
             elif self.loss_type == 'ranking':
                 meas_set = PairwiseRankingDataframeDataset(meas_df)
             avail_set = DataframeDataset(avail_df)
@@ -208,12 +208,11 @@ class BayesOptCampaign:
             if self.goal == "maximize":
                 # higher acq_vals the better
                 sort_idxs = np.argsort(acq_vals)[::-1]  # descending order
-                sample_idxs = sort_idxs[: self.batch_size]
-
             elif self.goal == "minimize":
                 # lower acq_vals the better
                 sort_idxs = np.argsort(acq_vals)  # ascending order
-                sample_idxs = sort_idxs[: self.batch_size]
+            
+            sample_idxs = sort_idxs[: self.batch_size]
 
             # perform measurements
             for sample_idx in sample_idxs:

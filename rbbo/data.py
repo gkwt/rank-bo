@@ -90,25 +90,26 @@ class PairwiseRankingDataframeDataset(Dataset):
     """
     This dataset will load the data for pairwise ranking loss.
     """
-    def __init__(self, df: pd.DataFrame, max_num_pairs: int = 0, goal: str = 'maximize'):
+    def __init__(self, df: pd.DataFrame, max_num_pairs: int = 0):
         self.data = df
         assert "feature" in df.columns, 'Column for "feature" not found.'
         assert "target" in df.columns, 'Column for "target" not found.'
 
         self.max_num_pairs = max_num_pairs
-        self.goal = goal
 
         # default to 2*length of dataframe
-        if max_num_pairs == 0:
+        if self.max_num_pairs == 0:
             self.max_num_pairs = 2*len(df)
+
+        if self.max_num_pairs > len(df)**2:
+            self.max_num_pairs = len(df)
          
         # the ranking based on the target value
-        self.compare_fn = np.greater if goal == 'maximize' else np.less
+        self.compare_fn = np.greater
 
         # get indices for pairs
-        idx1 = np.arange(len(df))
-        idx2 = np.arange(len(df))
-        pairs = np.array([[[v1, v2] for v1 in idx1] for v2 in idx2]).reshape(-1, 2)
+        # will produce (n^2-n)/2 data pairs, which can be truncated
+        pairs = np.array(np.triu_indices(len(df), k=1, m=len(df))).transpose()
         
         if max_num_pairs >= 0:
             self.pairs = pairs[np.random.choice(pairs.shape[0], self.max_num_pairs, replace=False), :]
