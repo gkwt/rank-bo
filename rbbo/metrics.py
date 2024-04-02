@@ -1,6 +1,7 @@
 import pandas as pd
 from sklearn.metrics import auc 
-from sklearn.preprocessing import minmax_scale
+
+from .utils import min_max_scale, remove_outliers
 
 def frac_top_n(
     df: pd.DataFrame, 
@@ -64,18 +65,42 @@ def frac_top_n_percent(
 
     return bo_output
 
-def custom_auc(
+def auc_metric(
+        df: pd.DataFrame, 
         bo_output: pd.DataFrame, 
-        metric: str = "frac_top_n"
-               
-):
+        metric: str = "top_one",
+        goal: str = "maximize",
+        outliers: float = None
+):  
+    # remove outliers if necessary
+    if outliers:
+        df = remove_outliers(df, goal, num_sigma=outliers)
+
+    # best and worst inside dataset
+    if goal == 'minimize':
+        best_val = df['target'].min()
+        worst_val = df['target'].max()
+    else:
+        best_val = df['target'].max()
+        worst_val = df['target'].min()
+
     bo_output = bo_output.reset_index()
-    x = bo_output['index']
+
+    # we will need to remove values that returned outside the best and worst
+    if outliers:
+        if goal == 'minimize':
+            bo_output.loc[bo_output[metric] > worst_val, metric] = worst_val
+        elif goal == 'maximize':
+            bo_output.loc[bo_output[metric] < worst_val, metric] = worst_val
+
+
+    x = min_max_scale(bo_output['index'])   # scale it to [0,1] for evaluations
     y = bo_output[metric]
+    y = min_max_scale(y, worst_val, best_val)
 
-    x_scaled = minmax_scale(x)
-    y_scaled = minmax_scale(y)
+    custom_auc = auc(x, y)
 
-    custom_auc = auc(x_scaled, y_scaled)
+    if goal == 'minimize':
+        custom_auc = 1.0 - custom_auc
 
     return custom_auc
