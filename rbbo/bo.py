@@ -1,4 +1,5 @@
 import os
+from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -9,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from rbbo.data import DataframeDataset, PairwiseRankingDataframeDataset
-from rbbo.models import MLP, get_loss_function
+from rbbo.models import MLP, BNN, get_loss_function
 
 
 class BayesOptCampaign:
@@ -32,36 +33,49 @@ class BayesOptCampaign:
         self,
         dataset: pd.DataFrame,
         goal: str,
-        loss_func: str,
+        loss_type: str,
+        acq_func: Callable,
+        model_type: str = 'mlp',
         num_of_epochs: int = 5,
         num_total: int = 10,
-        # num_acq_samples: int = 50,
         batch_size: int = 1,
         budget: int = 100,
         init_design_strategy: str = "random",
         num_init_design: int = 20,
         work_dir: str = ".",
         verbose: bool = True,
+        num_acq_samples: int = -1,
+        use_gpu: bool = True,
         *args,
         **kwargs,
     ):
         self.dataset = dataset
         self.goal = goal
-        # self.model = model
-        # self.feature_type = feature_type
-        # self.acq_func_type = acq_func_type
-        # self.num_acq_samples = num_acq_samples
+        self.model_type = model_type
+        self.acq_func = acq_func
         self.batch_size = batch_size
         self.budget = budget
         self.init_design_strategy = init_design_strategy
         self.work_dir = work_dir
         self.num_init_design = num_init_design
-        self.loss_type = loss_func
-        self.loss_func = get_loss_function(loss_func)
-        # self.num_workers = num_workers
+        self.loss_type = loss_type
+        self.loss_func = get_loss_function(loss_type)
         self.num_of_epochs = num_of_epochs
         self.num_total = num_total
         self.verbose = verbose
+        self.num_acq_samples = num_acq_samples
+
+        if use_gpu:
+            if torch.cuda.is_available():
+                print('GPU found, and is used.')
+                self.use_gpu = True
+                self.device = torch.device('cuda')
+            else:
+                print('No GPU found, default to CPU.')
+                self.use_gpu = False
+                self.device = torch.device('cpu')
+        else:
+            self.use_gpu = False
 
         # create working dir, and write the hypermarameters
         os.makedirs(self.work_dir, exist_ok=True)
@@ -81,23 +95,28 @@ class BayesOptCampaign:
 
     def _reinitialize_model(self):
         """Reinitialize the model from scratch (re-train)"""
-        reinit_model = MLP().double()
+        if self.model_type == 'mlp':
+            reinit_model = MLP().double()
+        elif self.model_type == 'bnn':
+            reinit_model = BNN().double()
         return reinit_model
 
     def run(self, seed: int = None):
         """Run the sequential learning experiments for num_restart independently seeded
         executions.
         """
-        if seed:
+
+        # set seed for reproducibility
+        if not seed:
             np.random.seed(seed)
 
         observations = []  # [ {'smiles': ,'target': ,'feature': }, ..., ]
-        all_test_set_metrics = []
         iter_num = 0
 
         while (len(observations) - self.num_init_design) < self.budget:
             # re-initialize the surrogate model
             self.model = self._reinitialize_model()
+            self.model = self.model.to(self.device)
             self.optimizer = optim.Adam(
                 self.model.parameters(),
                 lr=0.001,
@@ -115,38 +134,16 @@ class BayesOptCampaign:
                             "feature": feature,
                         }
                     )
+
             # split dataset into measured and available candidates
-            meas_df, avail_df = self.split_avail(self.dataset, observations)
+            meas_df, avail_df = self.split_avail(self.dataset.data, observations)
             # shuffle the available candidates (acq func sampling)
-            avail_df = avail_df.sample(frac=1).reset_index(drop=True)
+            if self.num_acq_samples > 0 and len(avail_df) > self.num_acq_samples:
+                avail_df = avail_df.sample(n=self.num_acq_samples).reset_index(drop=True)
             if self.verbose:
                 print(
                     f"NUM_ITER : {iter_num}\tNUM OBS : {len(observations)}"
                 )
-            # elif self.model_type == "nn":
-            #     # use nearnest neighbour strategy
-            #     X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
-            #     if self.goal == "minimize":
-            #         best_fp = np.array(
-            #             meas_df.nsmallest(n=1, columns="target")["feature"].tolist()
-            #         ).squeeze()
-            #     elif self.goal == "maximize":
-            #         best_fp = np.array(
-            #             meas_df.nlargest(n=1, columns="target")["feature"].tolist()
-            #         ).squeeze()
-            #     sims = np.array(
-            #         [chem.similarity_between_fps(x, best_fp) for x in X_avail]
-            #     )
-            #     ind = np.argsort(sims)[-self.batch_size :]
-            #     for sample_idx in ind:
-            #         sample, measurement = self.sample_meas_acq(
-            #             avail_df, sample_idx
-            #         )
-            #     observations.append({"smi": sample, "target": measurement})
-
-            # sample using surrogate model and acquisition
-            # X_meas, y_meas = self.make_xy(meas_df)
-            # X_avail, _ = self.make_xy(avail_df, num=self.num_acq_samples)
 
             # convert X_meas and y_meas to torch Dataset
             if self.loss_type == 'mse':
@@ -157,10 +154,10 @@ class BayesOptCampaign:
 
             # load data use DataLoader
             meas_loader = torch.utils.data.DataLoader(
-                meas_set, batch_size=8, shuffle=True, drop_last=True
+                meas_set, batch_size=8, shuffle=True, drop_last=False
             )
             avail_loader = torch.utils.data.DataLoader(
-                avail_set, batch_size=64, shuffle=False
+                avail_set, batch_size=128, shuffle=False
             )
 
             # train the model on observations
@@ -170,48 +167,50 @@ class BayesOptCampaign:
                 # train the model
                 self.model.train()
 
-                for i, data in enumerate(meas_loader):
+                for data in meas_loader:
                     self.optimizer.zero_grad()
-                    if self.loss_type == 'mse':
-                        X_meas, y_meas = data
-                        outputs = self.model(X_meas)
-                        loss = self.loss_func(outputs.flatten(), y_meas.flatten())
-                    elif self.loss_type == 'ranking':
-                        x1, x2, y = data
-                        y1 = self.model(x1)
-                        y2 = self.model(x2)
-                        loss = self.loss_func(y1.flatten(), y2.flatten(), y)
+                    loss = self.model.train_step(
+                        data, 
+                        loss_type=self.loss_type, 
+                        loss_func=self.loss_func,
+                        device=self.device
+                    )
 
                     loss.backward()
                     self.optimizer.step()
 
-            # just do greedy sampling (maximize the prediction)
-            mu_avail = []
+            # make inference
+            mu_avail, std_avail = [], []
             with torch.no_grad():
                 self.model.eval()
-                for i, data in enumerate(avail_loader):
+                for data in avail_loader:
                     X_avail, _ = data
-                    X_avail = X_avail
-                    y_avail = self.model(X_avail)  # (num_acq_samples, 1)
-                    mu_avail.append(y_avail.detach().numpy())
-            acq_vals = np.concatenate(mu_avail).flatten()
+                    X_avail = X_avail.to(self.device)
+                    y_avail, y_std = self.model.predict(X_avail)
+                    mu_avail.append(y_avail.detach().cpu().numpy())
+                    if y_std is not None:
+                        std_avail.append(y_std.detach().cpu().numpy())
 
-            # acq_vals = self.acq_func(
-            #     mu_avail.flatten(), sigma_avail.flatten(), incumbent_scal
-            # )  # (num_acq_samples,)
+            mu_avail = np.concatenate(mu_avail).flatten()
+            if not std_avail:
+                std_avail = None
+            else:
+                std_avail = np.concatenate(std_avail).flatten()
 
-            # maximize for greedy
-            # acq_vals = mu_avail.detach().numpy().flatten()
-            # acq_vals = mu_avail
-            # acq_vals = max(mu_avail.flatten())
+            # calculate acq function
+            # negate the results of prediction if minimizing
+            if self.goal == "minimize":
+                mu_avail *= -1.0
+                y_best = -meas_df['target'].min()    # negate and calculate the max
+            elif self.goal == "maximize":
+                y_best = meas_df['target'].max()
+            else:
+                raise ValueError('Goal must be minimize or maximize.')
 
-            if self.goal == "maximize":
-                # higher acq_vals the better
-                sort_idxs = np.argsort(acq_vals)[::-1]  # descending order
-            elif self.goal == "minimize":
-                # lower acq_vals the better
-                sort_idxs = np.argsort(acq_vals)  # ascending order
+            acq_vals = self.acq_func(mu_avail, std_avail, best_val=y_best)   
             
+            # higher acq_vals the better
+            sort_idxs = np.argsort(acq_vals)[::-1]  # descending order
             sample_idxs = sort_idxs[: self.batch_size]
 
             # perform measurements
@@ -227,18 +226,20 @@ class BayesOptCampaign:
 
         return pd.DataFrame(observations)
 
-    def sample_meas_acq(self, avail_df, idx):
+    @staticmethod
+    def sample_meas_acq(avail_df, idx):
         """obtain the molecules suggested by the acquisition function"""
-        return avail_df.iloc[idx, [0, 1, 2]]
+        return avail_df.iloc[idx]
 
-    def sample_meas_randomly(self, avail_df):
+    @staticmethod
+    def sample_meas_randomly(avail_df):
         """take a single random sample from the available candiates"""
         idx = np.random.randint(avail_df.shape[0])
-        return avail_df.iloc[idx, [0, 1, 2]]
+        return avail_df.iloc[idx]
 
-    def split_avail(self, df, observations):
+    @staticmethod
+    def split_avail(data, observations):
         """return available and measured datasets"""
-        data = df.data
         obs_smi = [o["smiles"] for o in observations]
 
         # avail_df is the set of molecules that have not been measured
@@ -247,23 +248,3 @@ class BayesOptCampaign:
         meas_df = data[data["smiles"].isin(obs_smi)]
         return meas_df, avail_df
 
-    def make_xy(self, df, num=None):
-        """generate featues and targets given a DataFrame"""
-        y = df["target"].values.reshape(-1, 1)
-        # if self.feature_type == "graphnet":
-        #     # special treatment for GraphTuple features
-        #     graphnet_list = df["feature"].tolist()
-        #     if num is not None:
-        #         graphnet_list = graphnet_list[: np.amin([num, len(graphnet_list)])]
-        #         y = y[: np.amin([num, len(graphnet_list)])]
-        #     else:
-        #         pass
-        #     X = utils_tf.concat(graphnet_list, axis=0)
-        # else:
-        #     # vector-valued features
-        X = np.vstack(df["feature"].values)
-        if num is not None:
-            X = X[: np.amin([num, X.shape[0]]), :]
-            y = y[: np.amin([num, X.shape[0]]), :]
-
-        return X, y
