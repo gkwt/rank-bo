@@ -96,11 +96,11 @@ def auc_metric(
 
     x = min_max_scale(bo_output['index'])   # scale it to [0,1] for evaluations
     y = bo_output[metric]
-    y = min_max_scale(y, worst_val, best_val)
+    # y = min_max_scale(y, worst_val, best_val)
 
     custom_auc = auc(x, y)
 
-    if goal == 'minimize':
-        custom_auc = 1.0 - custom_auc
+    # if goal == 'minimize':
+    #     custom_auc = 1.0 - custom_auc
 
     return custom_auc

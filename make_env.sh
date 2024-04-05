@@ -20,6 +20,7 @@ conda install -c pytorch pytorch
 pip install mordred
 pip install rogi
 pip install PyTDC
+pip install bayesian-torch
 # pip install pytorchltr
 # pip install chemprop
 
