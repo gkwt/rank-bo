@@ -1,6 +1,12 @@
 import pandas as pd
 from sklearn.preprocessing import minmax_scale
 import matplotlib.pyplot as plt
+import torch.nn as nn
+
+import numpy as np
+import scipy as sp
+import random
+import torch
 
 ORACLE_NAMES = ['QED', 'LogP', 'Celecoxib_Rediscovery', 'Aripiprazole_Similarity', 'Median_1', 
                 'Osimertinib_MPO', 'Fexofenadine_MPO', 'Ranolazine_MPO', 'Perindopril_MPO', 'Amlodipine_MPO', 'Zaleplon_MPO',
@@ -46,3 +52,19 @@ def get_split_indices(num_runs, n_procs):
         end = (i + 1) * chunk_size + min(i + 1, remaining)
         split_inds.append(indices[start:end])
     return split_inds
+
+def get_loss_function(loss_fn: str):
+    if loss_fn == 'mse':
+        return nn.MSELoss()
+    elif loss_fn == 'ranking':
+        return nn.MarginRankingLoss()#(margin=1.0)
+    else:
+        raise ValueError('Invalid loss_fn name.')
+
+
+def set_seed(seed):
+    np.random.seed(seed)
+    sp.random.seed(seed)
+    torch.manual_seed(seed)
+    random.seed(seed)
+

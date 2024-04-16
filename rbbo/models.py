@@ -6,6 +6,10 @@ from torch.utils.data import DataLoader
 
 from bayesian_torch.layers import LinearFlipout, LinearReparameterization
 
+import gpytorch
+from gpytorch.models import ExactGP
+from gauche.kernels.fingerprint_kernels import TanimotoKernel
+
 import warnings
 warnings.simplefilter("ignore", category=Warning)
 
@@ -23,7 +27,7 @@ class MLP(nn.Module):
     Only allows training with
     """
 
-    def __init__(self, hidden_dim: int = 100, num_layers: int = 3, output_dim: int = 1):
+    def __init__(self, hidden_dim: int = 100, num_layers: int = 2, output_dim: int = 1):
         super(MLP, self).__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -65,7 +69,7 @@ class MLP(nn.Module):
 
 
 class BNN(nn.Module):
-    def __init__(self, hidden_dim: int = 100, num_layers: int = 1, output_dim: int = 1):
+    def __init__(self, hidden_dim: int = 100, num_layers: int = 2, output_dim: int = 1):
         super(BNN, self).__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
@@ -110,11 +114,27 @@ class BNN(nn.Module):
         
         return loss
 
+class GP(ExactGP):
+    def __init__(self, train_x, train_y, likelihood):
+        super(GP, self).__init__(train_x, train_y, likelihood)
+        self.mean_module = gpytorch.means.ConstantMean()
+        self.covar_module = gpytorch.kernels.ScaleKernel(TanimotoKernel())
+        self.likelihood = likelihood
+    
+    def forward(self, x):
+        mean_x = self.mean_module(x)
+        covar_x = self.covar_module(x)
+        return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
+    
+    def train_step(self, data, device, loss_func, **kwargs):
+        x, y = data
+        x = x.to(device)
+        y = y.to(device)
+        output = self.forward(x)
+        loss = -loss_func(output, y)
+        return loss
 
-def get_loss_function(loss_fn: str):
-    if loss_fn == 'mse':
-        return nn.MSELoss()
-    elif loss_fn == 'ranking':
-        return nn.MarginRankingLoss(margin=1.0)
-    else:
-        raise ValueError('Invalid loss_fn name.')
+    def predict(self, x):
+        output = self(x)
+        return output.mean, output.variance
+

@@ -94,7 +94,7 @@ def auc_metric(
             bo_output.loc[bo_output[metric] < worst_val, metric] = worst_val
 
 
-    x = min_max_scale(bo_output['index'])   # scale it to [0,1] for evaluations
+    x = min_max_scale(bo_output['evaluation'])   # scale it to [0,1] for evaluations
     y = bo_output[metric]
     # y = min_max_scale(y, worst_val, best_val)
 
