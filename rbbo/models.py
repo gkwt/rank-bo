@@ -10,6 +10,8 @@ import gpytorch
 from gpytorch.models import ExactGP
 from gauche.kernels.fingerprint_kernels import TanimotoKernel
 
+from .mpnn import DMPNNEncoder, RevIndexedData, smiles2data
+
 import warnings
 warnings.simplefilter("ignore", category=Warning)
 
@@ -114,6 +116,7 @@ class BNN(nn.Module):
         
         return loss
 
+
 class GP(ExactGP):
     def __init__(self, train_x, train_y, likelihood):
         super(GP, self).__init__(train_x, train_y, likelihood)
@@ -137,4 +140,50 @@ class GP(ExactGP):
     def predict(self, x):
         output = self(x)
         return output.mean, output.variance
+
+
+
+
+class GNN(nn.Module):
+    def __init__(self, num_node_features, num_edge_features, hidden_size: int = 100, depth: int = 2, output_dim: int = 1):
+        super(GNN, self).__init__()
+        
+        self.mpnn = DMPNNEncoder(hidden_size, num_node_features, num_edge_features, depth)
+        self.predictor = nn.Sequential(
+            nn.Linear(hidden_size,  hidden_size),
+            nn.ReLU(),
+            LinearReparameterization(hidden_size, 1),
+        )
+
+    def forward(self, graph):
+        x = self.mpnn(graph)
+        y_pred = self.predictor(x)
+        return y_pred
+
+    def predict(self, x, samples=10):
+        preds = [self.forward(x)[0] for i in range(samples)]
+        preds = torch.stack(preds)
+        means = preds.mean(axis=0)
+        var = preds.var(axis=0)
+        return means, var
+
+    def train_step(self, data, loss_type: str, loss_func, device, beta: float = 0.1):
+        if loss_type == 'mse':
+            x, y = data
+            x = x.to(device)
+            y = y.to(device)
+            outputs, kld = self.forward(x)
+            loss = loss_func(outputs.flatten(), y.flatten()) + beta * kld / len(y)
+        elif loss_type == 'ranking':
+            x1, x2, y = data
+            x1 = x1.to(device)
+            x2 = x2.to(device)
+            y = y.to(device)
+            y1, kld1 = self.forward(x1)
+            y2, kld2 = self.forward(x2)
+            loss = loss_func(y1.flatten(), y2.flatten(), y) + beta * (kld1 + kld2) / len(y)
+        else:
+            raise ValueError('Invalid loss type.')
+        
+        return loss
 

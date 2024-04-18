@@ -13,7 +13,7 @@ from scipy.stats import norm
 
 from tqdm import tqdm
 
-from rbbo.data import MoleculeDataset
+from rbbo.data import process_dataset
 from rbbo.bo import BayesOptCampaign
 
 from argparse import ArgumentParser
@@ -78,7 +78,12 @@ if __name__ == "__main__":
     # other variables dependent on inputs
     work_dir = f'{dataset_name}_{goal}_{model_type}_{FLAGS.acq_func}'
     dataset_path = f'../data/{dataset_name}.csv'
-    dataset = MoleculeDataset(dataset_path, "fp", num_workers=num_workers)
+    if model_type == 'gnn':
+        dataset = process_dataset(dataset_path, "graph", num_workers=num_workers)
+        print("GNN uses graph features.")
+    else:
+        dataset = process_dataset(dataset_path, "fp", num_workers=num_workers)
+        print("Using ECFP fingerprints.")
 
     bo = BayesOptCampaign(
         dataset, 

@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import torch.nn as nn
 
 import numpy as np
-import scipy as sp
 import random
 import torch
 
@@ -64,7 +63,13 @@ def get_loss_function(loss_fn: str):
 
 def set_seed(seed):
     np.random.seed(seed)
-    sp.random.seed(seed)
     torch.manual_seed(seed)
     random.seed(seed)
 
+
+def read_csv_float(filename):
+    tmp = pd.read_csv(filename, nrows=5)
+    float_cols = [c for c in tmp if tmp[c].dtype == "float64"]
+    float32_cols = {c: np.float32 for c in float_cols}
+    df = pd.read_csv(filename, engine='c', dtype=float32_cols)
+    return df

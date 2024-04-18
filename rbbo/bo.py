@@ -4,6 +4,8 @@ from typing import Callable, Optional
 import torch
 import torch.nn as nn
 from torch import optim
+from torch_geometric.loader import DataLoader as pygdl
+from torch.utils.data import DataLoader as dl
 
 import gpytorch
 
@@ -14,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from rbbo.data import DataframeDataset, PairwiseRankingDataframeDataset
-from rbbo.models import MLP, BNN, GP
+from rbbo.models import MLP, BNN, GP, GNN
 from rbbo import utils
 
 
@@ -87,14 +89,17 @@ class BayesOptCampaign:
             self.use_gpu = False
             self.device = torch.device('cpu')
 
+        # decide if we are using PyG or just vector features
+        self.use_graphs = self.model_type == 'gnn'
+
         # create a split if required
         # the split is always the same random_state (ensuring same test set across runs)
         if test_ratio > 0:
             self.eval_mode = True
-            self.entire_df, self.held_df = train_test_split(self.dataset.data, test_size=self.test_ratio, random_state=42)
+            self.entire_df, self.held_df = train_test_split(self.dataset, test_size=self.test_ratio, random_state=42)
         else:
             self.eval_mode = False
-            self.entire_df = self.dataset.data
+            self.entire_df = self.dataset
 
         # create working dir, and write the hypermarameters
         os.makedirs(self.work_dir, exist_ok=True)
@@ -115,15 +120,21 @@ class BayesOptCampaign:
     def _reinitialize_model(self, meas_df = None):
         """Reinitialize the model from scratch (re-train)"""
         if self.model_type == 'mlp':
-            reinit_model = MLP().double()
+            reinit_model = MLP()
         elif self.model_type == 'bnn':
-            reinit_model = BNN().double()
+            reinit_model = BNN()
+        elif self.model_type == 'gnn':
+            gr = meas_df['feature'].tolist()[0]
+            reinit_model = GNN(
+                num_node_features = gr.x.shape[-1],
+                num_edge_features = gr.edge_attr.shape[-1],
+            )
         elif self.model_type == 'gp':
             assert meas_df is not None, 'GPs require the training data for initialization'
-            x = torch.tensor(np.array(meas_df['feature'].tolist(), dtype=np.float64))
-            y = torch.tensor(np.array(meas_df['target'].tolist(), dtype=np.float64))
+            x = torch.tensor(np.array(meas_df['feature'].tolist(), dtype=np.float32))
+            y = torch.tensor(np.array(meas_df['target'].tolist(), dtype=np.float32))
             likelihood = gpytorch.likelihoods.GaussianLikelihood()
-            reinit_model = GP(x, y, likelihood).double()
+            reinit_model = GP(x, y, likelihood)
             self.loss_func = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, reinit_model)     # use mll for GPs
         else:
             raise ValueError('No such model specified.')
@@ -188,12 +199,9 @@ class BayesOptCampaign:
             avail_set = DataframeDataset(avail_df)
 
             # load data use DataLoader
-            meas_loader = torch.utils.data.DataLoader(
-                meas_set, batch_size=32, shuffle=True
-            )
-            avail_loader = torch.utils.data.DataLoader(
-                avail_set, batch_size=256, shuffle=False
-            )
+            DataLoader = pygdl if self.use_graphs else dl
+            meas_loader = DataLoader(meas_set, batch_size=32, shuffle=True)
+            avail_loader = DataLoader(avail_set, batch_size=256, shuffle=False)
 
             # train the model on observations
             # start with fresh model every time
@@ -208,7 +216,6 @@ class BayesOptCampaign:
                         loss_func=self.loss_func,
                         device=self.device
                     )
-
                     loss.backward()
                     self.optimizer.step()
 
@@ -249,7 +256,7 @@ class BayesOptCampaign:
             # gather predictions for later analysis
             # if test_ratio is specified
             if self.eval_mode:
-                held_dl = torch.utils.data.DataLoader(
+                held_dl = DataLoader(
                     DataframeDataset(self.held_df), batch_size=128, shuffle=False
                 )
                 mu, std, y_true = [], [], []
