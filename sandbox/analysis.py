@@ -93,8 +93,9 @@ if __name__ == '__main__':
         df_all.append(pd.concat(df_collect))
         pred_all.append(pd.DataFrame(pred_collect))
 
-    df_all = pd.concat(df_all)
-    pred_all = pd.concat(pred_all)
+    df_all = pd.concat(df_all).reset_index(drop=True)
+    pred_all = pd.concat(pred_all).reset_index(drop=True)
+
 
     # plot the analysis
     sns.lineplot(df_all, x='evaluation', y='top_one', hue='loss_type', hue_order=['mse', 'ranking', 'random'])

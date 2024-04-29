@@ -73,7 +73,7 @@ def auc_metric(
         outliers: float = None
 ):  
     # remove outliers if necessary
-    if outliers:
+    if outliers is not None:
         df = remove_outliers(df, goal, num_sigma=outliers)
 
     # best and worst inside dataset
@@ -83,8 +83,6 @@ def auc_metric(
     else:
         best_val = df['target'].max()
         worst_val = df['target'].min()
-
-    bo_output = bo_output.reset_index()
 
     # we will need to remove values that returned outside the best and worst
     if outliers:

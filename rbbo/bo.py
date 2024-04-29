@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader as dl
 
 import gpytorch
 
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import RobustScaler
 from sklearn.model_selection import train_test_split
 
 import numpy as np
@@ -157,8 +157,9 @@ class BayesOptCampaign:
         while (len(observations) - self.num_init_design) < self.budget:
             # complete all init design first
             if iter_num == 0:
+                avail_df = self.entire_df
                 for _ in range(self.num_init_design):
-                    df_samp = self.sample_meas_randomly(self.entire_df)
+                    df_samp = self.sample_meas_randomly(avail_df)
                     sample, measurement, feature = df_samp['smiles'], df_samp['target'], df_samp['feature']
                     observations.append(
                         {
@@ -168,12 +169,15 @@ class BayesOptCampaign:
                             "feature": feature,
                         }
                     )
+
+                    # update avail_df that have been sampled already
+                    _, avail_df = self.split_avail(avail_df, observations)
                     eval_num += 1
 
             # split dataset into measured and available candidates
             meas_df, avail_df = self.split_avail(self.entire_df, observations)
             if self.scale:
-                scaler = StandardScaler()
+                scaler = RobustScaler()     # this works best with both Gaussian distr targets, and targets with outliers
                 meas_df['target'] = scaler.fit_transform(meas_df[['target']])
             # shuffle the available candidates (acq func sampling)
             if self.num_acq_samples > 0 and len(avail_df) > self.num_acq_samples:
