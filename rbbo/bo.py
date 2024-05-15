@@ -17,6 +17,7 @@ import pandas as pd
 
 from rbbo.data import DataframeDataset, PairwiseRankingDataframeDataset
 from rbbo.models import MLP, BNN, GP, GNN
+from rbbo.early_stop import EarlyStopping
 from rbbo import utils
 
 
@@ -43,7 +44,7 @@ class BayesOptCampaign:
         loss_type: str,
         acq_func: Callable,
         model_type: str = 'mlp',
-        num_of_epochs: int = 5,
+        num_of_epochs: int = 100,
         num_total: int = 10,
         batch_size: int = 1,
         budget: int = 100,
@@ -55,6 +56,7 @@ class BayesOptCampaign:
         use_gpu: bool = True,
         scale: bool = False,
         test_ratio: float = 0.15,
+        learning_rate: float = 0.005, 
         *args,
         **kwargs,
     ):
@@ -75,6 +77,7 @@ class BayesOptCampaign:
         self.num_acq_samples = num_acq_samples
         self.scale = scale
         self.test_ratio = test_ratio
+        self.lr = learning_rate
 
         if use_gpu:
             if torch.cuda.is_available():
@@ -101,6 +104,8 @@ class BayesOptCampaign:
             self.eval_mode = False
             self.entire_df = self.dataset
 
+        self._validate_budget()
+
         # create working dir, and write the hypermarameters
         os.makedirs(self.work_dir, exist_ok=True)
         with open(self.work_dir + '/hparams.txt', 'w') as f: 
@@ -111,11 +116,9 @@ class BayesOptCampaign:
         """validate that the budget does not exceed the total number of
         options in the dataset
         """
-        if self.budget > self.num_total:
-            print(
-                f"Requested budget exceeeds the number of total candidates. Resetting to {self.num_total}"
-            )
-            self.budget = self.num_total - self.num_init_design
+        if self.budget + self.num_init_design > len(self.entire_df):
+            raise ValueError(f'There are only {len(self.entire_df)} in the dataset. \
+            Requested budget and initial design is {self.budget + self.num_init_design }. Exiting...')
 
     def _reinitialize_model(self, meas_df = None):
         """Reinitialize the model from scratch (re-train)"""
@@ -192,29 +195,34 @@ class BayesOptCampaign:
             model = model.to(self.device)
             self.optimizer = optim.Adam(
                 model.parameters(),
-                lr=0.005,
+                lr=self.lr,
             )
+            es = EarlyStopping(model, mode='minimize', patience=50)
 
             # convert X_meas and y_meas to torch Dataset
             if self.loss_type == 'mse':
                 meas_set = DataframeDataset(meas_df)
             elif self.loss_type == 'ranking':
                 meas_set = PairwiseRankingDataframeDataset(meas_df)
+            
+            # perform a 90/10 split for early stopping
+            meas_train, meas_val = torch.utils.data.random_split(meas_set, [0.9, 0.1])
             avail_set = DataframeDataset(avail_df)
 
             # load data use DataLoader
             DataLoader = pygdl if self.use_graphs else dl
-            meas_loader = DataLoader(meas_set, batch_size=32, shuffle=True)
-            avail_loader = DataLoader(avail_set, batch_size=256, shuffle=False)
+            meas_train = DataLoader(meas_train, batch_size=64, shuffle=True)
+            meas_val = DataLoader(meas_val, batch_size=64, shuffle=False)
+            avail_loader = DataLoader(avail_set, batch_size=512, shuffle=False)
 
             # train the model on observations
             # start with fresh model every time
             # specify the LOSS function -> (ranking/mse)
-            model.train()
             for epoch in range(self.num_of_epochs):
-                for data in meas_loader:
+                model.train()
+                for data in meas_train:
                     self.optimizer.zero_grad()
-                    loss = model.train_step(
+                    loss = model.step(
                         data, 
                         loss_type=self.loss_type, 
                         loss_func=self.loss_func,
@@ -222,6 +230,27 @@ class BayesOptCampaign:
                     )
                     loss.backward()
                     self.optimizer.step()
+
+                # evaluate on validation set for early stopping
+                model.eval()
+                running_loss = 0
+                with torch.no_grad():
+                    for data in meas_val:
+                        loss = model.step(
+                            data, 
+                            loss_type=self.loss_type, 
+                            loss_func=self.loss_func,
+                            device=self.device
+                        )
+                        running_loss += loss.detach().cpu().numpy()
+                    running_loss /= len(meas_val)
+
+                if es.check_criteria(running_loss, model):
+                    # end training
+                    break
+
+            # restore the best model
+            model.load_state_dict(es.restore_best())
 
             # make inference
             mu_avail, std_avail = [], []
@@ -246,7 +275,7 @@ class BayesOptCampaign:
             # negate the results of prediction if minimizing
             if self.goal == "minimize":
                 mu_avail *= -1.0
-                y_best = -meas_df['target'].min()    # negate and calculate the min
+                y_best = -meas_df['target'].min()    # calculate the min and negate
             elif self.goal == "maximize":
                 y_best = meas_df['target'].max()
             else:

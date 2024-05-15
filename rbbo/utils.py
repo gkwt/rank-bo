@@ -9,6 +9,8 @@ import torch
 
 from rdkit.Chem import AllChem
 from rdkit.DataStructs import TanimotoSimilarity
+from rdkit import RDLogger
+RDLogger.DisableLog('rdApp.*')
 
 fpgen = AllChem.GetMorganGenerator(radius=3, includeChirality=True)
 
@@ -142,7 +144,7 @@ def read_csv_float(filename):
 
 def get_fingerprint(smi):
     mol = AllChem.MolFromSmiles(smi)
-    fp = fpgen.GetSparseCountFingerprint(mol)
+    fp = fpgen.GetFingerprint(mol)
     return fp
 
 def average_dataset_diversity(smiles):
@@ -156,3 +158,12 @@ def average_dataset_diversity(smiles):
         fp2 = get_fingerprint(smiles[p[1]])
         tot += TanimotoSimilarity(fp1, fp2)
     return tot / len(pairs)
+
+def read_hparam_files(fname: str):
+    hparams = {}
+    with open(fname, 'r') as f:
+        for l in f:
+            if ':' in l:
+                l = l.strip().split(':')
+                hparams[l[0]] = l[1]
+    return hparams

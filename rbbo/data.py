@@ -97,13 +97,14 @@ class PairwiseRankingDataframeDataset(Dataset):
         assert "target" in df.columns, 'Column for "target" not found.'
 
         self.max_num_pairs = max_num_pairs
+        n = len(df)
 
-        # default to 2*length of dataframe
+        # default to length of dataframe
         if self.max_num_pairs == 0:
-            self.max_num_pairs = 2*len(df)
+            self.max_num_pairs = 2*n
 
-        if self.max_num_pairs > len(df)**2:
-            self.max_num_pairs = len(df)
+        if self.max_num_pairs > (n**2 - n)/2:
+            self.max_num_pairs = int((n**2 - n)/2)
          
         # the ranking based on the target value
         self.compare_fn = np.greater

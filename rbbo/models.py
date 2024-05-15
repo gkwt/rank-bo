@@ -48,7 +48,7 @@ class MLP(nn.Module):
     def predict(self, x):
         return self.forward(x), None
 
-    def train_step(self, data, loss_type: str, loss_func: Callable, device):
+    def step(self, data, loss_type: str, loss_func: Callable, device):
         if loss_type == 'mse':
             x, y = data
             x = x.to(device)
@@ -96,7 +96,7 @@ class BNN(nn.Module):
         var = preds.var(axis=0)
         return means, var
 
-    def train_step(self, data, loss_type: str, loss_func, device, beta: float = 0.1):
+    def step(self, data, loss_type: str, loss_func, device, beta: float = 0.1):
         if loss_type == 'mse':
             x, y = data
             x = x.to(device)
@@ -129,7 +129,7 @@ class GP(ExactGP):
         covar_x = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
     
-    def train_step(self, data, device, loss_func, **kwargs):
+    def step(self, data, device, loss_func, **kwargs):
         x, y = data
         x = x.to(device)
         y = y.to(device)
@@ -167,7 +167,7 @@ class GNN(nn.Module):
         var = preds.var(axis=0)
         return means, var
 
-    def train_step(self, data, loss_type: str, loss_func, device, beta: float = 0.1):
+    def step(self, data, loss_type: str, loss_func, device, beta: float = 0.1):
         if loss_type == 'mse':
             x, y = data
             x = x.to(device)
