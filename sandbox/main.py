@@ -9,7 +9,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import norm, kendalltau
+
+from sklearn.metrics import r2_score
 
 from tqdm import tqdm
 
@@ -18,7 +20,7 @@ from rbbo.bo import BayesOptCampaign
 
 from argparse import ArgumentParser
 
-def ucb(mu: np.array, sigma: np.array, beta: float = 0.1, **kwargs):
+def ucb(mu: np.array, sigma: np.array, beta: float = 0.3, **kwargs):
     if sigma is None:
         return mu
     return mu + beta*sigma
@@ -49,6 +51,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_runs", action="store", type=int, dest="num_runs", help="Number of runs in BO. Defaults 20.", default=20)
     parser.add_argument("--num_init", action="store", type=int, dest="num_init", help="Number of initial samples defaults 20.", default=20)
     parser.add_argument("--budget", action="store", type=int, dest="budget", help="Budget of surrogate supported iterations. Defaults 100.", default=100)
+    parser.add_argument("--batch_size", action="store", type=int, dest="batch_size", help="Batch per iteration. Defaults 1.", default=1)
     parser.add_argument("--num_epochs", action="store", type=int, dest="num_epochs", help="Number of epochs per iteration. Defaults 5.", default=5)
     parser.add_argument("--maximize", action="store_true", dest="goal", help="Set goal to maximize. Otherwise will minimize.", default=False)
     parser.add_argument("--rank", action="store_true", help="Toggle use of ranking loss. Otherwise, MSE.", default=False)
@@ -58,6 +61,7 @@ if __name__ == "__main__":
     parser.add_argument("--scale", action="store_true", help="Toggle scaling of targets. Defaults false.", default=False)
     parser.add_argument("--test_ratio", action="store", type=float, dest="test_ratio", help="Size of testing set, set to 0 for no evaluation. \
                         Defaults 0.15.", default=0.15)
+    parser.add_argument("--learning_rate", action="store", type=float, dest="learning_rate", help="Setting learning rate, defaults to 0.005.", default=0.005)
     FLAGS = parser.parse_args()
 
     # input parameters
@@ -68,12 +72,14 @@ if __name__ == "__main__":
     num_workers = FLAGS.num_workers
     num_runs = FLAGS.num_runs
     num_init = FLAGS.num_init
+    batch_size = FLAGS.batch_size
     budget = FLAGS.budget
     num_epochs = FLAGS.num_epochs
     acq_func = get_acq_function(FLAGS.acq_func)
     use_gpu = FLAGS.use_gpu
     scale = FLAGS.scale
     test_ratio = FLAGS.test_ratio
+    learning_rate = FLAGS.learning_rate
 
     # other variables dependent on inputs
     work_dir = f'{dataset_name}_{goal}_{model_type}_{FLAGS.acq_func}'
@@ -88,19 +94,20 @@ if __name__ == "__main__":
     bo = BayesOptCampaign(
         dataset, 
         goal, 
-        model_type=model_type,
-        loss_type=loss_type, 
-        acq_func=acq_func,
-        num_of_epochs=num_epochs,
-        budget=budget, 
-        batch_size=1,
+        model_type = model_type,
+        loss_type = loss_type, 
+        acq_func = acq_func,
+        num_of_epochs = num_epochs,
+        budget = budget, 
+        batch_size = batch_size,
         num_init_design = num_init, 
-        verbose=False, 
-        work_dir=work_dir,
-        num_acq_samples=-1,      # consider changing this to a finite positive number (ie. 128) to speed up inference
+        verbose = False, 
+        work_dir = work_dir,
+        num_acq_samples = -1,      # consider changing this to a finite positive number (ie. 128) to speed up inference
         use_gpu = use_gpu,
         scale = scale,
         test_ratio = test_ratio,
+        learning_rate = learning_rate,
     )
 
     # perform the run

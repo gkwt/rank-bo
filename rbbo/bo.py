@@ -179,9 +179,15 @@ class BayesOptCampaign:
 
             # split dataset into measured and available candidates
             meas_df, avail_df = self.split_avail(self.entire_df, observations)
+
+            # perform a 90/10 split for early stopping
+            meas_df_train, meas_df_val = train_test_split(meas_df, test_size=0.1, random_state=seed)
+
             if self.scale:
                 scaler = RobustScaler()     # this works best with both Gaussian distr targets, and targets with outliers
-                meas_df['target'] = scaler.fit_transform(meas_df[['target']])
+                meas_df_train['target'] = scaler.fit_transform(meas_df_train[['target']])
+                meas_df_val['target'] = scaler.transform(meas_df_val[['target']])
+                meas_df['target'] = scaler.transform(meas_df[['target']])
             # shuffle the available candidates (acq func sampling)
             if self.num_acq_samples > 0 and len(avail_df) > self.num_acq_samples:
                 avail_df = avail_df.sample(n=self.num_acq_samples).reset_index(drop=True)
@@ -191,27 +197,26 @@ class BayesOptCampaign:
                 )
 
             # re-initialize the surrogate model
-            model = self._reinitialize_model(meas_df)
+            model = self._reinitialize_model(meas_df_train)
             model = model.to(self.device)
             self.optimizer = optim.Adam(
                 model.parameters(),
                 lr=self.lr,
             )
-            es = EarlyStopping(model, mode='minimize', patience=50)
+            es = EarlyStopping(model, mode='minimize', patience=25)
 
             # convert X_meas and y_meas to torch Dataset
             if self.loss_type == 'mse':
-                meas_set = DataframeDataset(meas_df)
+                meas_train = DataframeDataset(meas_df_train)
+                meas_val = DataframeDataset(meas_df_val)
             elif self.loss_type == 'ranking':
-                meas_set = PairwiseRankingDataframeDataset(meas_df)
-            
-            # perform a 90/10 split for early stopping
-            meas_train, meas_val = torch.utils.data.random_split(meas_set, [0.9, 0.1])
+                meas_ds = PairwiseRankingDataframeDataset(meas_df)
+                meas_train, meas_val = torch.utils.data.random_split(meas_ds, [0.9, 0.1], torch.Generator().manual_seed(seed))
             avail_set = DataframeDataset(avail_df)
 
             # load data use DataLoader
             DataLoader = pygdl if self.use_graphs else dl
-            meas_train = DataLoader(meas_train, batch_size=64, shuffle=True)
+            meas_train = DataLoader(meas_train, batch_size=128, shuffle=True)
             meas_val = DataLoader(meas_val, batch_size=64, shuffle=False)
             avail_loader = DataLoader(avail_set, batch_size=512, shuffle=False)
 
@@ -245,12 +250,14 @@ class BayesOptCampaign:
                         running_loss += loss.detach().cpu().numpy()
                     running_loss /= len(meas_val)
 
-                if es.check_criteria(running_loss, model):
+                stop = es.check_criteria(running_loss, model)
+                if stop:
                     # end training
                     break
 
             # restore the best model
             model.load_state_dict(es.restore_best())
+
 
             # make inference
             mu_avail, std_avail = [], []

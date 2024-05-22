@@ -11,7 +11,7 @@ class EarlyStopping():
       Checkpointed value can be restored.
 
       Args:
-        model: sonnet model to checkpoint.
+        model: model to checkpoint.
         patience: number of iterations before flaggin a stop.
         min_delta: minimum value to quanlify as an improvement.
         checkpoint_interval: number of iterations before checkpointing.
@@ -33,10 +33,10 @@ class EarlyStopping():
         self.values = []
         self.best_model = copy.deepcopy(model.state_dict())
         if mode == 'maximize':
-            self.monitor_op = lambda a, b: np.greater(a - min_delta, b)
+            self.monitor_op = lambda a, b: np.greater_equal(a - min_delta, b)
             self.best_value = -np.inf
         elif mode == 'minimize':
-            self.monitor_op = lambda a, b: np.less(a + min_delta, b)
+            self.monitor_op = lambda a, b: np.less_equal(a + min_delta, b)
             self.best_value = np.inf
         else:
             raise ValueError('Invalid mode for early stopping.')
@@ -59,5 +59,5 @@ class EarlyStopping():
         return self.wait >= self.patience
 
     def restore_best(self):
-        # print(f'Restoring checkpoint at step {self.best_step} with best value at {self.best_value:.6f}')
+        print(f'Restoring checkpoint at step {self.best_step} with best value at {self.best_value}')
         return self.best_model

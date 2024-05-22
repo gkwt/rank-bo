@@ -34,6 +34,7 @@ def get_fingerprint(smiles: str):
 
 def process_dataset(smiles_data: str, feature_type: str, num_workers: int = 1):
     data = pd.read_csv(smiles_data)
+    data = data.dropna()
 
     if feature_type == "mordred":
         raise ValueError('Mordred temporarily not available.')

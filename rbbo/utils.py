@@ -8,7 +8,7 @@ import random
 import torch
 
 from rdkit.Chem import AllChem
-from rdkit.DataStructs import TanimotoSimilarity
+from rdkit.DataStructs import TanimotoSimilarity, BulkTanimotoSimilarity
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
 
@@ -56,8 +56,8 @@ CHEMBL_KI = [
     'CHEMBL236_Ki', 'CHEMBL237_Ki', 'CHEMBL238_Ki', 'CHEMBL262_Ki',
     'CHEMBL264_Ki', 'CHEMBL287_Ki', 'CHEMBL1871_Ki', 'CHEMBL2034_Ki', 
     'CHEMBL2147_Ki', 'CHEMBL2835_Ki', 'CHEMBL2971_Ki', 'CHEMBL4005_Ki', 
-    'CHEMBL4203_Ki', 'CHEMBL4792_Ki',
-    # 'CHEMBL219_Ki', 'CHEMBL233_Ki', 'CHEMBL234_Ki', 'CHEMBL244_Ki', 
+    'CHEMBL4203_Ki', 'CHEMBL4792_Ki', 'CHEMBL1862_Ki',
+    'CHEMBL219_Ki', 'CHEMBL233_Ki', 'CHEMBL234_Ki', 'CHEMBL244_Ki', 
 ]
 
 CHEMBL_EC50 = [
@@ -84,6 +84,11 @@ CHEMBL_ROGI = {
     'CHEMBL4005_Ki': 0.036496755541569725, 
     'CHEMBL4203_Ki': 0.031133750514614894, 
     'CHEMBL4792_Ki': 0.08743653970206094, 
+    'CHEMBL1862_Ki': 0.024711452879059848,
+    'CHEMBL219_Ki': 0.012473008660025764,
+    'CHEMBL233_Ki': 0.032246458399610045,
+    'CHEMBL234_Ki': 0.02989212265679239,
+    'CHEMBL244_Ki': 0.05996705242259187,
     'CHEMBL218_EC50': 0.035189428200530906, 
     'CHEMBL235_EC50': 0.04120365694078032, 
     'CHEMBL237_EC50': 0.03393567153559238, 
@@ -147,17 +152,21 @@ def get_fingerprint(smi):
     fp = fpgen.GetFingerprint(mol)
     return fp
 
-def average_dataset_diversity(smiles):
+def average_dataset_diversity(smiles, num_comparisons=0):
     # select a few pairs from the dataset
     pairs = np.array(np.triu_indices(len(smiles), k=1, m=len(smiles))).transpose()
-    pairs = pairs[np.random.choice(pairs.shape[0], len(smiles), replace=False), :]
+    if num_comparisons >= 0:
+        if num_comparisons == 0:
+            num_comparisons = len(smiles)
+        pairs = pairs[np.random.choice(pairs.shape[0], num_comparisons, replace=False), :]
 
     tot = 0
     for p in pairs:
         fp1 = get_fingerprint(smiles[p[0]])
         fp2 = get_fingerprint(smiles[p[1]])
         tot += TanimotoSimilarity(fp1, fp2)
-    return tot / len(pairs)
+    return tot / pairs
+
 
 def read_hparam_files(fname: str):
     hparams = {}
